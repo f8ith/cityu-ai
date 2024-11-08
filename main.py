@@ -1,14 +1,31 @@
+import random
+from dataclasses import dataclass
+import os
+import copy
+
 from PIL import Image
+import matplotlib.pyplot as plt
 import torch
+from torch import optim, nn
 from torchvision import transforms
 import numpy as np
-import os
 
-Categories = ["bus", "motorcycle", "truck", "car"]
+
+@dataclass
+class TrainingArgs:
+    c: float = 0.01
+    lr: float = 0.1
+    batchsize: int = 5
+    epoch: int = 10
+    device: str = "cpu"
+
+
+Categories = ["bus", "motorcycle"]
 flat_data_arr = []  # input array
 target_arr = []  # output array
 datadir = "Dataset/"
 # path which contains all the categories of images
+
 for i in Categories:
     print(f"loading... category : {i}")
     path = os.path.join(datadir, i)
@@ -21,83 +38,62 @@ for i in Categories:
         target_arr.append(Categories.index(i))
     print(f"loaded category:{i} successfully")
 
+
+for i in range(len(target_arr)):
+    if target_arr[i] == 0:
+        target_arr[i] = 1
+    else:
+        target_arr[i] = -1
+
 flat_data = np.array(flat_data_arr)
 target = np.array(target_arr)
 
-# def train(X, Y, model, args):
-#    X = torch.FloatTensor(X)
-#    Y = torch.FloatTensor(Y)
-#    N = len(Y)
-#
-#    optimizer = optim.SGD(model.parameters(), lr=args.lr)
-#
-#    model.train()
-#    for epoch in range(args.epoch):
-#        perm = torch.randperm(N)
-#        sum_loss = 0
-#
-#        for i in range(0, N, args.batchsize):
-#            x = X[perm[i : i + args.batchsize]].to(args.device)
-#            y = Y[perm[i : i + args.batchsize]].to(args.device)
-#
-#            optimizer.zero_grad()
-#            output = model(x).squeeze()
-#            weight = model.weight.squeeze()
-#
-#            loss = torch.mean(torch.clamp(1 - y * output, min=0))
-#            loss += args.c * (weight.t() @ weight) / 2.0
-#
-#            loss.backward()
-#            optimizer.step()
-#
-#            sum_loss += float(loss)
-#
-#        print("Epoch: {:4d}\tloss: {}".format(epoch, sum_loss / N))
-#
-#
-# def visualize(X, Y, model):
-#    W = model.weight.squeeze().detach().cpu().numpy()
-#    b = model.bias.squeeze().detach().cpu().numpy()
-#
-#    delta = 0.001
-#    x = np.arange(X[:, 0].min(), X[:, 0].max(), delta)
-#    y = np.arange(X[:, 1].min(), X[:, 1].max(), delta)
-#    x, y = np.meshgrid(x, y)
-#    xy = list(map(np.ravel, [x, y]))
-#
-#    z = (W.dot(xy) + b).reshape(x.shape)
-#    z[np.where(z > 1.0)] = 4
-#    z[np.where((z > 0.0) & (z <= 1.0))] = 3
-#    z[np.where((z > -1.0) & (z <= 0.0))] = 2
-#    z[np.where(z <= -1.0)] = 1
-#
-#    plt.figure(figsize=(10, 10))
-#    plt.xlim([X[:, 0].min() + delta, X[:, 0].max() - delta])
-#    plt.ylim([X[:, 1].min() + delta, X[:, 1].max() - delta])
-#    plt.contourf(x, y, z, alpha=0.8, cmap="Greys")
-#    plt.scatter(x=X[:, 0], y=X[:, 1], c="black", s=10)
-#    plt.tight_layout()
-#    plt.show()
-#
-#
-# if __name__ == "__main__":
-#    parser = argparse.ArgumentParser()
-#    parser.add_argument("--c", type=float, default=0.01)
-#    parser.add_argument("--lr", type=float, default=0.1)
-#    parser.add_argument("--batchsize", type=int, default=5)
-#    parser.add_argument("--epoch", type=int, default=10)
-#    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
-#    args = parser.parse_args()
-#    args.device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-#
-#    print(args)
-#
-#    X, Y = make_blobs(n_samples=500, centers=2, random_state=0, cluster_std=0.4)
-#    X = (X - X.mean()) / X.std()
-#    Y[np.where(Y == 0)] = -1
-#
-#    model = nn.Linear(2, 1)
-#    model.to(args.device)
-#
-#    train(X, Y, model, args)
-#    visualize(X, Y, model)
+X_train = flat_data
+y_train = target
+
+dim = len(X_train[0])
+w = torch.autograd.Variable(torch.rand(dim), requires_grad=True)
+b = torch.autograd.Variable(torch.rand(1), requires_grad=True)
+
+step_size = 1e-3
+num_epochs = 500
+minibatch_size = 20
+
+for epoch in range(num_epochs):
+    print(f"Running epoch {epoch}")
+    inds = [i for i in range(len(X_train))]
+    random.shuffle(inds)
+    for i in range(len(inds)):
+        L = (
+            max(
+                0,
+                1
+                - y_train[inds[i]] * (torch.dot(w, torch.Tensor(X_train[inds[i]])) - b),
+            )
+            ** 2
+        )
+        if (
+            L != 0
+        ):  # if the loss is zero, Pytorch leaves the variables as a float 0.0, so we can't call backward() on it
+            L.backward()
+            w.data -= step_size * w.grad.data  # step
+            b.data -= step_size * b.grad.data  # step
+            w.grad.data.zero_()
+            b.grad.data.zero_()
+
+
+print("plane equation:  w=", w.detach().numpy(), "b =", b.detach().numpy()[0])
+
+
+def accuracy(X, y):
+    correct = 0
+    for i in range(len(y)):
+        y_predicted = int(
+            np.sign((torch.dot(w, torch.Tensor(X[i])) - b).detach().numpy()[0])
+        )
+        if y_predicted == y[i]:
+            correct += 1
+    return float(correct) / len(y)
+
+
+print("train accuracy", accuracy(X_train, y_train))

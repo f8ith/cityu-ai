@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "poe"
+name = "cityu-ai"
 version = "0.1.0"
 description = ""
 authors = ["faith <jamienibtong@gmail.com>"]
@@ -9,6 +9,9 @@ readme = "README.md"
 python = "^3.12"
 torch = "^2.5.1"
 torchvision = "^0.20.1"
+matplotlib = "^3.9.2"
+scikit-learn = "^1.5.2"
+torch-hog = {url = "https://github.com/Simon-Bertrand/HOG-PyTorch/archive/main.zip"}
 
 [build-system]
 requires = ["poetry-core"]
