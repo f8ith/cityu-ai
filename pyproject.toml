@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "poe"
+version = "0.1.0"
+description = ""
+authors = ["faith <jamienibtong@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+torch = "^2.5.1"
+torchvision = "^0.20.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+exclude = [ ".venv" ]
+venvPath = "."
+venv = ".venv"
