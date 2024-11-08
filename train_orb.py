@@ -7,11 +7,10 @@ from torch.optim import lr_scheduler
 import torchvision.transforms as transforms
 import copy
 import os
-import math
 from datetime import datetime
 from dataclasses import dataclass
 
-Categories = ["bus", "motorcycle", "truck", "car"]
+Categories = ["Bus", "motorcycle", "Truck", "Car"]
 ImageSize = (128, 64)
 GridOptimize = False
 
@@ -30,79 +29,13 @@ class TrainingArgs:
     pool: int = 8
 
 
-class HOGLayer(nn.Module):
-    def __init__(
-        self,
-        nbins=9,
-        pool=8,
-        block_size=2,
-        max_angle=math.pi,
-        stride=1,
-        padding=1,
-        dilation=1,
-    ):
-        super(HOGLayer, self).__init__()
-        self.nbins = nbins
-        self.block_size = block_size
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.pool = pool
-        self.max_angle = max_angle
-        mat = torch.FloatTensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
-        mat = torch.cat((mat[None], mat.t()[None]), dim=0)
-        self.register_buffer("weight", mat[:, None, :, :])
-        self.pooler = nn.AvgPool2d(
-            pool, stride=pool, padding=0, ceil_mode=False, count_include_pad=True
-        )
-
-    def forward(self, x):
-        with torch.no_grad():
-            gxy = F.conv2d(
-                x, self.weight, None, self.stride, self.padding, self.dilation, 1
-            )
-            # 2. Mag/ Phase
-            mag = gxy.norm(dim=1)
-            norm = mag[:, None, :, :]
-            phase = torch.atan2(gxy[:, 0, :, :], gxy[:, 1, :, :])
-
-            # 3. Binning Mag with linear interpolation
-            phase_int = phase / self.max_angle * self.nbins
-            phase_int = phase_int[:, None, :, :]
-
-            n, c, h, w = gxy.shape
-            out = torch.zeros(
-                (n, self.nbins, h, w), dtype=torch.float, device=gxy.device
-            )
-            out.scatter_(1, phase_int.floor().long() % self.nbins, norm)
-            out.scatter_add_(1, phase_int.ceil().long() % self.nbins, 1 - norm)
-
-            # n_blocks_row = int(ImageSize[0] / self.pool / self.block_size)
-            # n_blocks_col = int(ImageSize[1] / self.pool / self.block_size)
-
-            # normalized_blocks = torch.zeros(
-            #    (
-            #        n_blocks_row,
-            #        n_blocks_col,
-            #        self.block_size,
-            #        self.block_size,
-            #        self.nbins,
-            #    )
-            # )
-            # for r in range(n_blocks_row):
-            #    for c in range(n_blocks_col):
-            #        block = out[r : r + self.block_size, c : c + self.block_size, :]
-            #        normalized_blocks[r, c, :] = block / torch.sqrt(torch.sum(block ** 2) + eps ** 2)
-
-            return self.pooler(out)
-
-
 class MotorVehiclesDataset(torch.utils.data.Dataset):
     """Motor Vehicles dataset."""
 
-    def __init__(self, root_dir, image_transform: nn.Module | None = None):
+    def __init__(self, root_dir, grayscale=False, image_transform: nn.Module | None = None):
         self.root_dir = root_dir
         self.image_transform = image_transform
+        self.grayscale = grayscale
         self.dataset = []
         for i in Categories:
             # print(f"loading... category : {i}")
@@ -126,9 +59,7 @@ class MotorVehiclesDataset(torch.utils.data.Dataset):
         if self.image_transform:
             img_array = img_array.convert("L").resize(ImageSize)
             to_tensor = transforms.ToTensor()
-            img_array = to_tensor(img_array)
-            img_array = self.image_transform(img_array.unsqueeze(0))
-            img_array = img_array.flatten()
+            img_array = torch.flatten(to_tensor(img_array))
         else:
             img_array = img_array.convert("RGB").resize(ImageSize)
             to_tensor = transforms.ToTensor()
@@ -148,6 +79,18 @@ class SVM(nn.Module):
         out = self.fc(x)
         return out
 
+
+class FAST(nn.Module):
+    def __init__(self, n=12, ):
+        super(FAST, self).__init__()  # Call the init function of nn.Module
+
+    def forward(self, x):
+        kernel = torch.tensor([[1,2,1], [2,4,2],[1,2,1]])/ 16
+        img = torch.conv2d(x, kernel)
+
+        
+
+        return out
 
 def train_model(
     model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, other_args
@@ -197,7 +140,8 @@ def train_model(
                 scheduler.step()
 
             epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+            epoch_acc = running_corrects.double(  # type:ignore
+            ) / dataset_sizes[phase]
 
             print(
                 "Epoch [{}/{}], {} Loss: {:.4f} Acc: {:.4f}".format(
@@ -233,12 +177,11 @@ def main():
 
     print(args)
 
-    hog = HOGLayer(nbins=args.nbins, pool=args.pool)
     args.input_size = int(
         args.nbins * ImageSize[0] / args.pool * ImageSize[1] / args.pool
     )
 
-    dataset = MotorVehiclesDataset(args.datadir, image_transform=hog)
+    dataset = MotorVehiclesDataset(args.datadir, grayscale=True)
 
     generator1 = torch.Generator().manual_seed(42)
 
@@ -294,7 +237,8 @@ def main():
 
         torch.save(best_model_state, f"model/{datetime.now()}model.pth")
 
-        print("OVERALL best val Acc in percentage: {:.4f}".format(best_acc * 100.0))
+        print("OVERALL best val Acc in percentage: {:.4f}".format(
+            best_acc * 100.0))
     else:
         (model, last_acc) = train_model(
             model,
@@ -306,7 +250,7 @@ def main():
             args,
         )
 
-        torch.save(model.state_dict(), f"model/{datetime.now()}model.pth")
+        torch.save(model.state_dict(), f"model/{datetime.now()}-model.pth")
 
 
 # Execute from the interpreter
